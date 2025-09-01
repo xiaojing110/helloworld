@@ -15,22 +15,16 @@ jobs:
         include:
           - arch: arm_cortex-a9_vfpv3-d16
             target: mvebu-cortexa9
-
           - arch: mips_24kc
             target: ath79-generic
-
           - arch: mipsel_24kc
             target: mt7621
-
           - arch: aarch64_cortex-a53
             target: mvebu-cortexa53
-
           - arch: arm_cortex-a15_neon-vfpv4
             target: armvirt-32
-
           - arch: i386_pentium-mmx
             target: x86-geode
-
           - arch: x86_64
             target: x86-64
 
@@ -58,7 +52,7 @@ jobs:
 
       - name: Determine changed packages
         run: |
-          # only detect packages with changes
+          # 只检测有变更的软件包
           PKG_ROOTS=$(find . -name Makefile | \
             grep -v ".*/src/Makefile" | \
             sed -e 's@./\(.*\)/Makefile@\1/@')
@@ -72,8 +66,7 @@ jobs:
               fi
             done
           done
-          # fallback to test packages if nothing explicitly changes this is
-          # should run if other mechanics in packages.git changed
+          # 如果没有检测到变更，默认编译 luci-app-ssr-plus
           PACKAGES="${PACKAGES:-luci-app-ssr-plus}"
 
           echo "Building $PACKAGES"
@@ -85,9 +78,10 @@ jobs:
           ARCH: ${{ matrix.arch }}
           FEEDNAME: packages_ci
           V: s
+          PACKAGE_FORMAT: ipk
 
       - name: Move created packages to project dir
-        run: cp bin/packages/${{ matrix.arch }}/packages_ci/*.apk . || true
+        run: cp bin/packages/${{ matrix.arch }}/packages_ci/*.ipk . || true
 
       - name: Collect metadata
         run: |
@@ -98,6 +92,8 @@ jobs:
           PRNUMBER=${GITHUB_REF_NAME%/merge}
           echo "PRNUMBER=$PRNUMBER" >> $GITHUB_ENV
           echo "ARCHIVE_NAME=${{matrix.arch}}-PR$PRNUMBER-$MERGE_ID" >> $GITHUB_ENV
+          # 添加编译年份和月份
+          echo "BUILD_DATE=$(date -u +%Y-%m)" >> $GITHUB_ENV
 
       - name: Generate metadata
         run: |
@@ -118,11 +114,11 @@ jobs:
           _EOF_
           for p in $PACKAGES
           do
-            echo "  "$p >> PKG-INFO
+            echo "  $p" >> PKG-INFO
           done
           echo >> PKG-INFO
           echo Full file listing: >> PKG-INFO
-          ls -al *.apk >> PKG-INFO || true
+          ls -al *.ipk >> PKG-INFO || true
           cat PKG-INFO
 
       - name: Store packages
@@ -132,7 +128,7 @@ jobs:
           path: |
             Packages
             Packages.*
-            *.apk
+            *.ipk
             PKG-INFO
 
       - name: Store logs
@@ -142,3 +138,31 @@ jobs:
           path: |
             logs/
             PKG-INFO
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.ARCHIVE_NAME }}
+          release_name: Release for ${{ env.ARCHIVE_NAME }} (${{ env.BUILD_DATE }})
+          body: |
+            Packages for ImmortalWrt ${{ env.BRANCH }} on ${{ matrix.arch }}.
+            PR: #${{ env.PRNUMBER }}
+            Commit: ${{ env.HEAD_ID }}
+            Merge SHA: ${{ env.MERGE_ID }}
+            Build Date: ${{ env.BUILD_DATE }}
+            Packages: ${{ env.PACKAGES }}
+          draft: false
+          prerelease: true
+
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./
+          asset_name: ${{ env.ARCHIVE_NAME }}-packages.zip
+          asset_content_type: application/zip

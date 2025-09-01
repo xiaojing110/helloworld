@@ -4,6 +4,7 @@ on:
   pull_request:
     paths-ignore:
       - '**.md'
+  workflow_dispatch: # 添加手动触发支持
 
 jobs:
   build:
@@ -46,7 +47,11 @@ jobs:
 
       - name: Determine branch name
         run: |
-          BRANCH="${GITHUB_BASE_REF#refs/heads/}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BRANCH="${{ github.ref_name }}"
+          else
+            BRANCH="${GITHUB_BASE_REF#refs/heads/}"
+          fi
           echo "Building for $BRANCH"
           echo "BRANCH=$BRANCH" >> $GITHUB_ENV
 
@@ -90,6 +95,9 @@ jobs:
           echo "BASE_ID=$(git rev-parse --short HEAD^1)" >> $GITHUB_ENV
           echo "HEAD_ID=$(git rev-parse --short HEAD^2)" >> $GITHUB_ENV
           PRNUMBER=${GITHUB_REF_NAME%/merge}
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            PRNUMBER="manual-${MERGE_ID}"
+          fi
           echo "PRNUMBER=$PRNUMBER" >> $GITHUB_ENV
           echo "ARCHIVE_NAME=${{matrix.arch}}-PR$PRNUMBER-$MERGE_ID" >> $GITHUB_ENV
           # 添加编译年份和月份
